@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, Depends, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 import os
@@ -16,11 +16,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_ANON_KEY")
-)
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
 
+# --- JWT Schutz ---
+def get_current_user(authorization: str = Header(None)):
+    if not authorization:
+        raise HTTPException(401, "Kein Token")
+    try:
+        token = authorization.split(" ")[1]
+        user = supabase.auth.get_user(token)
+        return user.user
+    except:
+        raise HTTPException(401, "Ungültiges Token")
+
+# --- Auth Endpoints ---
+@app.post("/register")
+def register(email: str = Body(...), password: str = Body(...), name: str = Body(...), dog_name: str = Body(...)):
+    try:
+        auth_res = supabase.auth.sign_up({"email": email, "password": password})
+        if auth_res.user:
+            supabase.table("users").insert({
+                "id": auth_res.user.id,
+                "email": email,
+                "name": name,
+                "dog_name": dog_name
+            }).execute()
+            return {"message": "Registrierung erfolgreich!", "user_id": auth_res.user.id}
+        else:
+            return {"error": "Registrierung fehlgeschlagen"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/login")
+def login(email: str = Body(...), password: str = Body(...)):
+    try:
+        auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        return {
+            "access_token": auth_res.session.access_token,
+            "user_id": auth_res.user.id,
+            "email": auth_res.user.email
+        }
+    except Exception as e:
+        return {"error": "Login fehlgeschlagen: " + str(e)}
+
+# --- Geschützter Test-Insert (ersetzt den alten!) ---
+@app.post("/test-insert")
+def test_insert_protected(current_user = Depends(get_current_user)):
+    try:
+        data = supabase.table("users").insert({
+            "id": current_user.id,
+            "email": current_user.email,
+            "name": "Testuser",
+            "dog_name": "Bello"
+        }).execute()
+        return {"inserted": data.data}
+    except Exception as e:
+        return {"error": str(e)}
+
+# --- Öffentliche Endpoints ---
 @app.get("/")
 def home():
     return {"message": "Doggo Trainer API is running!"}
@@ -36,64 +89,3 @@ def test_db():
         return {"db_connected": True, "data": data.data}
     except Exception as e:
         return {"db_connected": False, "error": str(e)}
-
-@app.post("/test-insert")
-def test_insert():
-    try:
-        data = supabase.table("users").insert({
-            "email": "test@hund.de",
-            "name": "Max",
-            "dog_name": "Bello"
-        }).execute()
-        return {"inserted": data.data}
-    except Exception as e:
-        return {"error": str(e)}
-
-# Browser-freundlicher GET-Endpoint
-@app.get("/test-insert")
-def test_insert_get():
-    return {
-        "message": "This endpoint only accepts POST requests!",
-        "how_to_test": "Use curl:",
-        "command": "curl -X POST http://localhost:8000/test-insert"
-    }
-
-# --- NEU: Auth Endpoints ---
-@app.post("/register")
-def register(email: str, password: str, name: str, dog_name: str):
-    try:
-        # 1. Nutzer in Supabase Auth anlegen
-        auth_res = supabase.auth.sign_up({
-            "email": email,
-            "password": password
-        })
-        
-        if auth_res.user:
-            # 2. Nutzer in users-Tabelle speichern
-            supabase.table("users").insert({
-                "id": auth_res.user.id,
-                "email": email,
-                "name": name,
-                "dog_name": dog_name
-            }).execute()
-            
-            return {"message": "Registrierung erfolgreich!", "user_id": auth_res.user.id}
-        else:
-            return {"error": "Registrierung fehlgeschlagen"}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/login")
-def login(email: str, password: str):
-    try:
-        auth_res = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-        return {
-            "access_token": auth_res.session.access_token,
-            "user_id": auth_res.user.id,
-            "email": auth_res.user.email
-        }
-    except Exception as e:
-        return {"error": "Login fehlgeschlagen: " + str(e)}
