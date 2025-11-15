@@ -60,16 +60,14 @@ def login(email: str = Body(...), password: str = Body(...)):
         return {"error": "Login fehlgeschlagen: " + str(e)}
 
 # --- Geschützter Test-Insert (ersetzt den alten!) ---
-@app.post("/test-insert")
-def test_insert_protected(current_user = Depends(get_current_user)):
+@app.get("/me")
+def get_me(current_user = Depends(get_current_user)):
     try:
-        data = supabase.table("users").insert({
-            "id": current_user.id,
-            "email": current_user.email,
-            "name": "Testuser",
-            "dog_name": "Bello"
-        }).execute()
-        return {"inserted": data.data}
+        user_data = supabase.table("users").select("*").eq("id", current_user.id).execute()
+        if user_data.data:
+            return user_data.data[0]
+        else:
+            return {"error": "Nutzer nicht in DB"}
     except Exception as e:
         return {"error": str(e)}
 
