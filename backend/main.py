@@ -57,3 +57,43 @@ def test_insert_get():
         "how_to_test": "Use curl:",
         "command": "curl -X POST http://localhost:8000/test-insert"
     }
+
+# --- NEU: Auth Endpoints ---
+@app.post("/register")
+def register(email: str, password: str, name: str, dog_name: str):
+    try:
+        # 1. Nutzer in Supabase Auth anlegen
+        auth_res = supabase.auth.sign_up({
+            "email": email,
+            "password": password
+        })
+        
+        if auth_res.user:
+            # 2. Nutzer in users-Tabelle speichern
+            supabase.table("users").insert({
+                "id": auth_res.user.id,
+                "email": email,
+                "name": name,
+                "dog_name": dog_name
+            }).execute()
+            
+            return {"message": "Registrierung erfolgreich!", "user_id": auth_res.user.id}
+        else:
+            return {"error": "Registrierung fehlgeschlagen"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/login")
+def login(email: str, password: str):
+    try:
+        auth_res = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+        return {
+            "access_token": auth_res.session.access_token,
+            "user_id": auth_res.user.id,
+            "email": auth_res.user.email
+        }
+    except Exception as e:
+        return {"error": "Login fehlgeschlagen: " + str(e)}
